@@ -42,6 +42,7 @@ export default function MaskDetectionPage() {
       return;
     }
     setIsDetecting(true);
+    setMaskStatus(null);
     toast({ title: "Mask detection started" });
     detectionInterval.current = setInterval(async () => {
       const imageDataUrl = cameraRef.current?.capture();
@@ -55,9 +56,10 @@ export default function MaskDetectionPage() {
         } catch (error) {
           console.error("Error analyzing image for mask:", error);
           setMaskStatus("Unknown");
+          toast({ variant: "destructive", title: "AI Error", description: "Could not analyze image for mask." });
         }
       }
-    }, 2500);
+    }, 3000); // Check every 3 seconds
   };
   
   const stopDetection = () => {
@@ -69,14 +71,18 @@ export default function MaskDetectionPage() {
       toast({ title: "Mask detection stopped" });
   };
   
-  const logEvent = (status: 'Worn' | 'Not Worn') => {
+  const logEvent = (status: 'Worn' | 'Not Worn' | 'Unknown') => {
     const now = new Date();
     const newLog: LogEntry = {
       Date: now.toLocaleDateString(),
       Time: now.toLocaleTimeString(),
       'Mask Status': status,
     };
-    setLogs(prevLogs => [newLog, ...prevLogs]); // Add to the top of the list
+    // Add to the top of the list, but avoid logging too frequently for the same status
+    setLogs(prevLogs => {
+        if(prevLogs[0]?.['Mask Status'] === status) return prevLogs;
+        return [newLog, ...prevLogs]
+    });
   };
   
   useEffect(() => {
@@ -88,10 +94,11 @@ export default function MaskDetectionPage() {
   }, [])
 
   const getStatusMessage = () => {
-    if (!maskStatus) return null;
-    if (maskStatus === 'Worn') return "Mask detected. Good, stay safe!";
-    if (maskStatus === 'Not Worn') return "No mask detected. Please wear a mask for safety.";
-    return "Could not determine mask status.";
+    if (!isDetecting) return "Detection is off.";
+    if (maskStatus === 'Worn') return "Mask detected. Thank you for your cooperation!";
+    if (maskStatus === 'Not Worn') return "No mask detected. Please wear a mask.";
+    if (maskStatus === 'Unknown') return "Cannot determine mask status from the image.";
+    return "Analyzing...";
   };
 
   return (
@@ -103,7 +110,7 @@ export default function MaskDetectionPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
             <CameraFeed ref={cameraRef}>
-                {maskStatus && (
+                {isDetecting && maskStatus && (
                     <div className={cn("absolute inset-0 flex items-center justify-center p-4", {
                         "bg-green-500/20": maskStatus === "Worn",
                         "bg-red-500/20": maskStatus === "Not Worn",
@@ -137,22 +144,17 @@ export default function MaskDetectionPage() {
                 <CardTitle>Current Status</CardTitle>
             </CardHeader>
             <CardContent>
-                {maskStatus ? (
-                    <div className="text-center">
-                        <p className={cn("text-2xl font-bold", {
-                            "text-green-600": maskStatus === "Worn",
-                            "text-red-600": maskStatus === "Not Worn",
-                            "text-yellow-600": maskStatus === "Unknown"
-                        })}>
-                            Mask {maskStatus}
-                        </p>
-                        <p className="text-muted-foreground mt-1">{getStatusMessage()}</p>
-                    </div>
-                ) : (
-                    <p className="text-muted-foreground text-center">
-                        {isDetecting ? "Detecting..." : "Detection is off."}
+                <div className="text-center">
+                    <p className={cn("text-2xl font-bold", {
+                        "text-green-600": maskStatus === "Worn",
+                        "text-red-600": maskStatus === "Not Worn",
+                        "text-yellow-600": maskStatus === "Unknown",
+                        "text-muted-foreground": !maskStatus
+                    })}>
+                       {isDetecting ? (maskStatus ? `Mask ${maskStatus}` : 'Analyzing...') : 'Idle'}
                     </p>
-                )}
+                    <p className="text-muted-foreground mt-1">{getStatusMessage()}</p>
+                </div>
             </CardContent>
           </Card>
         </div>

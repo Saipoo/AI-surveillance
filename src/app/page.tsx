@@ -1,16 +1,18 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { PageHeader } from "@/components/page-header";
 import { CameraFeed, type CameraFeedRef } from "@/components/camera-feed";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { exportToExcel } from "@/lib/excel";
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Download } from "lucide-react";
+import { Download, Upload, Loader2 } from "lucide-react";
+import { analyzeImageForUniform } from "@/ai/flows/analyze-uniform-flow";
+import { Input } from "@/components/ui/input";
 
 type LogEntry = {
   Date: string;
@@ -20,30 +22,42 @@ type LogEntry = {
 
 export default function UniformDetectionPage() {
   const cameraRef = useRef<CameraFeedRef>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDetecting, setIsDetecting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [detectionStatus, setDetectionStatus] = useState<'Granted' | 'Denied' | null>(null);
   const [registeredUniform, setRegisteredUniform] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const detectionInterval = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
 
-  const handleRegisterUniform = () => {
-    if (!cameraRef.current?.isCameraOn) {
-      toast({
-        variant: "destructive",
-        title: "Camera is off",
-        description: "Please turn on the camera to register a uniform.",
-      });
-      return;
+  useEffect(() => {
+    // Load registered uniform from localStorage on mount
+    const storedUniform = localStorage.getItem("registeredUniform");
+    if (storedUniform) {
+      setRegisteredUniform(storedUniform);
     }
-    const imageDataUrl = cameraRef.current?.capture();
-    if (imageDataUrl) {
-      setRegisteredUniform(imageDataUrl);
-      toast({
-        title: "Uniform Registered",
-        description: "The uniform has been successfully registered.",
-      });
+  }, []);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const imageDataUrl = e.target?.result as string;
+        setRegisteredUniform(imageDataUrl);
+        localStorage.setItem("registeredUniform", imageDataUrl); // Save to localStorage
+        toast({
+          title: "Uniform Registered",
+          description: "The uniform image has been successfully uploaded and saved.",
+        });
+      };
+      reader.readAsDataURL(file);
     }
+  };
+
+  const handleRegisterClick = () => {
+    fileInputRef.current?.click();
   };
 
   const handleToggleDetection = () => {
@@ -53,22 +67,42 @@ export default function UniformDetectionPage() {
         clearInterval(detectionInterval.current);
       }
       setDetectionStatus(null);
+      toast({ title: "Detection Stopped" });
     } else {
       if (!registeredUniform) {
         toast({
           variant: "destructive",
           title: "No Uniform Registered",
-          description: "Please register a uniform before starting detection.",
+          description: "Please upload a uniform image before starting detection.",
         });
         return;
       }
+       if (!cameraRef.current?.isCameraOn) {
+        toast({ variant: "destructive", title: "Camera is off", description: "Please turn on the camera to start detection." });
+        return;
+       }
       setIsDetecting(true);
-      detectionInterval.current = setInterval(() => {
-        const isMatch = Math.random() > 0.3; // Simulate detection
-        const status = isMatch ? 'Granted' : 'Denied';
-        setDetectionStatus(status);
-        logEvent(status);
-      }, 3000);
+      toast({ title: "Detection Started" });
+      detectionInterval.current = setInterval(async () => {
+        if (isProcessing || !cameraRef.current) return;
+        
+        const cameraImageUri = cameraRef.current.capture();
+        if (cameraImageUri && registeredUniform) {
+            setIsProcessing(true);
+            try {
+                const { isMatch } = await analyzeImageForUniform({ cameraImageUri, registeredUniformUri: registeredUniform });
+                const status = isMatch ? 'Granted' : 'Denied';
+                setDetectionStatus(status);
+                logEvent(status);
+            } catch (error) {
+                console.error("Error analyzing uniform:", error);
+                toast({ variant: "destructive", title: "AI Error", description: "Could not analyze the uniform." });
+                setDetectionStatus(null);
+            } finally {
+                setIsProcessing(false);
+            }
+        }
+      }, 4000); // Check every 4 seconds
     }
   };
   
@@ -79,14 +113,25 @@ export default function UniformDetectionPage() {
       Time: now.toLocaleTimeString(),
       'Uniform Status': status,
     };
-    setLogs(prevLogs => [...prevLogs, newLog]);
+    setLogs(prevLogs => {
+      if (prevLogs[0]?.['Uniform Status'] === status) return prevLogs;
+      return [newLog, ...prevLogs];
+    });
   };
+
+  useEffect(() => {
+    return () => {
+        if(detectionInterval.current) {
+            clearInterval(detectionInterval.current)
+        }
+    }
+  }, [])
 
   return (
     <div className="container mx-auto py-4">
       <PageHeader
         title="Uniform Detection System"
-        description="Detect if a student is wearing the registered uniform and grant or deny permission."
+        description="Upload a uniform image, then detect if a student is wearing it to grant or deny permission."
       />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
@@ -98,6 +143,11 @@ export default function UniformDetectionPage() {
                 </Badge>
                </div>
             )}
+             {isProcessing && (
+                <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary"/>
+                </div>
+            )}
           </CameraFeed>
         </div>
         <div className="space-y-6">
@@ -106,23 +156,32 @@ export default function UniformDetectionPage() {
               <CardTitle>Controls</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Button onClick={handleRegisterUniform} className="w-full" disabled={isDetecting}>
-                Register Uniform
+              <Input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
+              <Button onClick={handleRegisterClick} className="w-full" disabled={isDetecting}>
+                <Upload className="mr-2" /> Upload Uniform Image
               </Button>
               <Button onClick={handleToggleDetection} className="w-full" variant={isDetecting ? "destructive" : "default"}>
-                {isDetecting ? 'Stop Detection' : 'Start Detection'}
+                {isDetecting ? (
+                    <>
+                     <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
+                     Stop Detection
+                    </>
+                ) : 'Start Detection'}
               </Button>
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
               <CardTitle>Registered Uniform</CardTitle>
+              <CardDescription>This is the reference image for detection.</CardDescription>
             </CardHeader>
             <CardContent>
               {registeredUniform ? (
-                <Image src={registeredUniform} alt="Registered Uniform" width={200} height={200} className="rounded-md mx-auto" />
+                <Image src={registeredUniform} alt="Registered Uniform" width={200} height={200} className="rounded-md mx-auto aspect-square object-cover" />
               ) : (
-                <p className="text-muted-foreground text-center">No uniform registered yet.</p>
+                <div className="text-muted-foreground text-center border-2 border-dashed rounded-lg p-8">
+                    <p>No uniform image uploaded yet.</p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -162,7 +221,7 @@ export default function UniformDetectionPage() {
                         ))
                     ) : (
                         <TableRow>
-                            <TableCell colSpan={3} className="text-center">No logs yet.</TableCell>
+                            <TableCell colSpan={3} className="text-center">No logs yet. Start detection to see results.</TableCell>
                         </TableRow>
                     )}
                 </TableBody>

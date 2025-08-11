@@ -57,18 +57,7 @@ const analyzeMaskFlow = ai.defineFlow(
     outputSchema: AnalyzeMaskOutputSchema,
   },
   async (input) => {
-    // In a real application, you would enable the AI prompt.
     const { output } = await prompt(input);
     return output!;
-    
-    // To simulate detection for testing, we can use random logic.
-    // const roll = Math.random();
-    // if (roll < 0.6) {
-    //     return { maskStatus: 'Worn' };
-    // } else if (roll < 0.95) {
-    //     return { maskStatus: 'Not Worn' };
-    // } else {
-    //     return { maskStatus: 'Unknown' };
-    // }
   }
 );

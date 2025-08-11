@@ -9,6 +9,7 @@ import {
   Shirt,
   Move,
   Eye,
+  Hand,
 } from "lucide-react";
 import {
   Sidebar,
@@ -27,6 +28,7 @@ const menuItems = [
   { href: "/attendance", label: "Attendance System", icon: UserCheck },
   { href: "/mask-detection", label: "Mask Detection", icon: Shield },
   { href: "/movement-tracking", label: "Movement Tracking", icon: Move },
+  { href: "/sign-detection", label: "Sign Detection", icon: Hand },
 ];
 
 export function AppSidebar() {
