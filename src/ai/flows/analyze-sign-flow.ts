@@ -62,18 +62,7 @@ const analyzeSignFlow = ai.defineFlow(
     outputSchema: AnalyzeSignOutputSchema,
   },
   async (input) => {
-    // In a real application, you would use the AI prompt.
-    // For demonstration, we'll simulate the detection.
-    const roll = Math.random();
-    if (roll < 0.1) return { sign: 'Help' };
-    if (roll < 0.2) return { sign: 'SOS' };
-    if (roll < 0.3) return { sign: 'Stop' };
-    // This can be expanded for other signs
-
-    // For real analysis, uncomment the following:
-    // const { output } = await prompt(input);
-    // return output!;
-    
-    return { sign: null };
+    const { output } = await prompt(input);
+    return output!;
   }
 );
